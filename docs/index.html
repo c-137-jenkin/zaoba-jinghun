@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#05070b">
+<link rel="icon" href="data:,">
+<title>早八惊魂 · 互动短剧</title>
+<style>
+  /* ============ 基础 ============ */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    /* 两个分支的强调色：A 暖（人情），B 冷（理性） */
+    --a-color: #ffa24d;
+    --b-color: #59b0ff;
+    --ink: #eef4ff;
+    --ink-dim: rgba(238, 244, 255, .62);
+    --glass: rgba(16, 22, 32, .58);
+    --glass-line: rgba(255, 255, 255, .16);
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: #05070b;
+    overflow: hidden;
+    font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", system-ui, sans-serif;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* 外层：把 16:9 的舞台在任意屏幕上居中、留黑边（模拟影院银幕） */
+  #stage {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background:
+      radial-gradient(120% 90% at 50% 0%, #0d1622 0%, #05070b 55%, #000 100%);
+  }
+
+  /* 舞台本体：严格 16:9，取宽高中较小的约束 */
+  #frame {
+    position: relative;
+    width: min(100vw, 177.78vh);
+    height: min(56.25vw, 100vh);
+    background: #000;
+    overflow: hidden;
+    box-shadow: 0 0 120px rgba(0, 0, 0, .9);
+  }
+
+  /* ============ 视频层（4 个标签，靠 z-index + opacity 切换）============ */
+  .layer {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;      /* 视频本身就是 16:9，这里只防万一的比例误差 */
+    background: #000;
+    opacity: 0;             /* 默认全部隐藏 */
+    z-index: 1;
+    pointer-events: none;
+    /* 注意：故意不加 transition —— 切换靠预加载做到"硬切不黑屏"，
+       加淡入淡出反而会出现两层画面叠影 */
+  }
+  .layer.active { opacity: 1; }
+
+  /* ============ 通用遮罩层 ============ */
+  .overlay {
+    position: absolute; inset: 0;
+    z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; visibility: hidden;
+    transition: opacity .32s ease, visibility .32s;
+  }
+  .overlay.show { opacity: 1; visibility: visible; }
+
+  /* 抉择/结束时的压暗层，让文字更清晰 */
+  #dim {
+    position: absolute; inset: 0;
+    z-index: 40;
+    background:
+      radial-gradient(70% 70% at 50% 50%, rgba(3, 6, 12, .55) 0%, rgba(3, 6, 12, .82) 100%);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    opacity: 0; visibility: hidden;
+    transition: opacity .38s ease, visibility .38s;
+  }
+  #dim.show { opacity: 1; visibility: visible; }
+
+  /* ============ 开场 ============ */
+  #startMask {
+    background:
+      radial-gradient(90% 70% at 50% 30%, rgba(10, 18, 30, .82) 0%, rgba(2, 4, 8, .96) 70%);
+    flex-direction: column;
+    z-index: 60;
+    overflow: hidden;
+  }
+  /* 用主线抽帧做的背景：虚化 + 暗化，营造电影海报感 */
+  #startMask::before {
+    content: "";
+    position: absolute; inset: -6%;
+    background: url('./poster.jpg') center / cover no-repeat;
+    filter: blur(20px) brightness(.40) saturate(1.05);
+    transform: scale(1.06);
+    animation: kenburns 24s ease-out forwards;
+    z-index: 0;
+  }
+  @keyframes kenburns {
+    from { transform: scale(1.06) translateY(0); }
+    to   { transform: scale(1.16) translateY(-1.5%); }
+  }
+  #startMask::after {
+    /* 暗角 + 一点点胶片颗粒感，顺便把背景里的原字幕压掉 */
+    content: "";
+    position: absolute; inset: 0;
+    background-image:
+      radial-gradient(72% 62% at 50% 44%, rgba(2, 4, 8, .30) 0%, rgba(2, 4, 8, .82) 100%),
+      radial-gradient(rgba(255, 255, 255, .05) 1px, transparent 1px);
+    background-size: 100% 100%, 3px 3px;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .start-inner {
+    position: relative; z-index: 2;
+    text-align: center;
+    padding: 0 6vw;
+  }
+  .eyebrow {
+    font-size: clamp(10px, 1.35vmin, 17px);
+    letter-spacing: .55em;
+    text-indent: .55em;
+    color: rgba(255, 255, 255, .5);
+    margin-bottom: clamp(12px, 2.4vmin, 30px);
+  }
+  #startMask h1 {
+    font-size: clamp(34px, 9vmin, 130px);
+    font-weight: 800;
+    letter-spacing: .12em;
+    text-indent: .12em;
+    line-height: 1.05;
+    background: linear-gradient(180deg, #ffffff 0%, #b9cbe4 60%, #7c8ea8 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 0 60px rgba(140, 190, 255, .25);
+  }
+  .start-sub {
+    margin-top: clamp(10px, 2vmin, 26px);
+    font-size: clamp(12px, 1.9vmin, 26px);
+    color: var(--ink-dim);
+    letter-spacing: .18em;
+  }
+  .cta {
+    margin-top: clamp(24px, 5vmin, 68px);
+    padding: clamp(12px, 2.2vmin, 26px) clamp(30px, 5vmin, 72px);
+    font-size: clamp(14px, 2.2vmin, 30px);
+    font-family: inherit;
+    letter-spacing: .22em;
+    text-indent: .22em;
+    color: #fff;
+    background: rgba(255, 255, 255, .04);
+    border: 1px solid rgba(255, 255, 255, .38);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all .28s cubic-bezier(.2, .8, .3, 1);
+    backdrop-filter: blur(6px);
+  }
+  .cta:hover:not(:disabled), .cta:focus-visible:not(:disabled) {
+    background: #fff;
+    color: #0a0f18;
+    border-color: #fff;
+    transform: translateY(-2px) scale(1.03);
+    box-shadow: 0 12px 40px rgba(180, 215, 255, .35);
+    outline: none;
+  }
+  .cta:disabled { opacity: .45; cursor: progress; }
+
+  #loadHint {
+    margin-top: clamp(14px, 2.4vmin, 30px);
+    font-size: clamp(10px, 1.5vmin, 18px);
+    color: rgba(255, 255, 255, .38);
+    letter-spacing: .16em;
+    height: 1.4em;
+  }
+
+  /* ============ 抉择面板 ============ */
+  .panel-card {
+    position: relative;
+    width: min(94%, 1500px);
+    padding: clamp(18px, 3.2vmin, 52px) clamp(18px, 3.4vmin, 56px);
+    border-radius: clamp(12px, 1.6vmin, 26px);
+    background: var(--glass);
+    border: 1px solid var(--glass-line);
+    box-shadow: 0 30px 90px rgba(0, 0, 0, .7), inset 0 1px 0 rgba(255, 255, 255, .1);
+    backdrop-filter: blur(26px) saturate(150%);
+    -webkit-backdrop-filter: blur(26px) saturate(150%);
+    transform: translateY(14px) scale(.985);
+    transition: transform .4s cubic-bezier(.2, .8, .3, 1);
+  }
+  .overlay.show .panel-card { transform: translateY(0) scale(1); }
+
+  .panel-head { text-align: center; margin-bottom: clamp(14px, 2.8vmin, 44px); }
+  .kicker {
+    display: inline-block;
+    font-size: clamp(9px, 1.4vmin, 17px);
+    letter-spacing: .48em;
+    text-indent: .48em;
+    color: rgba(255, 255, 255, .45);
+    padding-bottom: clamp(6px, 1vmin, 14px);
+  }
+  .panel-head h2 {
+    font-size: clamp(18px, 3.5vmin, 50px);
+    font-weight: 700;
+    letter-spacing: .06em;
+    margin-top: clamp(4px, .8vmin, 12px);
+  }
+
+  /* 没有二维码时，面板收窄一点，视觉更聚拢 */
+  .panel-card.no-qr { width: min(92%, 1420px); }
+
+  .panel-body {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: clamp(14px, 2.6vmin, 44px);
+    align-items: center;
+  }
+  /* 没有 qrcode.png 时，二维码栏自动收起、按钮占满 */
+  .panel-card.no-qr .qr-box { display: none; }
+  .panel-card.no-qr .panel-body { grid-template-columns: 1fr; }
+
+  .choices { display: flex; flex-direction: column; gap: clamp(8px, 1.5vmin, 22px); }
+
+  .choice {
+    position: relative;
+    display: flex; align-items: center;
+    gap: clamp(10px, 1.9vmin, 28px);
+    width: 100%;
+    text-align: left;
+    padding: clamp(14px, 2.6vmin, 38px) clamp(16px, 2.6vmin, 38px);
+    border-radius: clamp(10px, 1.3vmin, 18px);
+    background: rgba(255, 255, 255, .05);
+    border: 1px solid rgba(255, 255, 255, .14);
+    border-left: 3px solid var(--accent, #fff);
+    color: var(--ink);
+    font-family: inherit;
+    cursor: pointer;
+    transition: all .26s cubic-bezier(.2, .8, .3, 1);
+    overflow: hidden;
+  }
+  .choice::before {
+    /* hover 时从左掠过的光 */
+    content: "";
+    position: absolute; inset: 0;
+    background: linear-gradient(100deg, transparent 0%, var(--accent-soft, rgba(255,255,255,.14)) 50%, transparent 100%);
+    transform: translateX(-100%);
+    transition: transform .6s ease;
+  }
+  .choice-a { --accent: var(--a-color); --accent-soft: rgba(255, 162, 77, .16); }
+  .choice-b { --accent: var(--b-color); --accent-soft: rgba(89, 176, 255, .16); }
+
+  .choice:hover, .choice:focus-visible {
+    background: rgba(255, 255, 255, .11);
+    border-color: var(--accent);
+    transform: translateX(4px) translateY(-2px);
+    box-shadow: 0 14px 44px -10px var(--accent), inset 0 0 40px -20px var(--accent);
+    outline: none;
+  }
+  .choice:hover::before, .choice:focus-visible::before { transform: translateX(100%); }
+  .choice:active { transform: translateX(4px) scale(.995); }
+
+  .key {
+    flex: 0 0 auto;
+    display: grid; place-items: center;
+    width: clamp(28px, 4.8vmin, 66px);
+    height: clamp(28px, 4.8vmin, 66px);
+    border-radius: 50%;
+    background: var(--accent);
+    color: #08101c;
+    font-size: clamp(15px, 2.5vmin, 34px);
+    font-weight: 800;
+    transition: transform .26s ease;
+  }
+  .choice:hover .key { transform: scale(1.08) rotate(-4deg); }
+
+  .choice-txt { flex: 1 1 auto; display: flex; flex-direction: column; gap: clamp(2px, .7vmin, 10px); }
+  .t1 {
+    font-size: clamp(16px, 3.4vmin, 52px);
+    font-weight: 700;
+    letter-spacing: .02em;
+    line-height: 1.25;
+  }
+  .t2 {
+    font-size: clamp(11px, 2.1vmin, 29px);
+    color: var(--ink-dim);
+    letter-spacing: .04em;
+  }
+  .arrow {
+    flex: 0 0 auto;
+    font-size: clamp(15px, 2.5vmin, 34px);
+    color: var(--accent);
+    opacity: .5;
+    transition: all .26s ease;
+  }
+  .choice:hover .arrow { opacity: 1; transform: translateX(5px); }
+
+  /* 二维码栏 */
+  .qr-box {
+    display: flex; flex-direction: column; align-items: center;
+    gap: clamp(6px, 1vmin, 14px);
+    padding: clamp(8px, 1.4vmin, 20px);
+    min-width: clamp(96px, 15vmin, 240px);
+  }
+  .qr-tip {
+    font-size: clamp(10px, 1.4vmin, 19px);
+    color: var(--ink-dim);
+    letter-spacing: .14em;
+    white-space: nowrap;
+  }
+  #qrImg {
+    width: clamp(88px, 14vmin, 220px);
+    height: clamp(88px, 14vmin, 220px);
+    object-fit: contain;
+    border-radius: 8px;
+    background: #fff;
+    padding: 6px;
+    box-shadow: 0 6px 26px rgba(0, 0, 0, .5);
+  }
+  .qr-sub {
+    font-size: clamp(9px, 1.2vmin, 16px);
+    color: rgba(255, 255, 255, .34);
+    text-align: center;
+    line-height: 1.5;
+    max-width: clamp(100px, 15vmin, 220px);
+  }
+
+  /* ============ 结束 / 重选 ============ */
+  #replayPanel { background: rgba(2, 4, 8, .55); }
+  .replay-inner { text-align: center; }
+  .replay-inner h2 {
+    font-size: clamp(16px, 2.6vmin, 38px);
+    font-weight: 700;
+    letter-spacing: .06em;
+    margin-bottom: clamp(6px, 1.2vmin, 16px);
+  }
+  .replay-inner p {
+    font-size: clamp(11px, 1.6vmin, 22px);
+    color: var(--ink-dim);
+    letter-spacing: .1em;
+    margin-bottom: clamp(18px, 3.6vmin, 50px);
+  }
+
+  /* 右下角操作提示 */
+  #hint {
+    position: absolute;
+    right: clamp(10px, 1.6vmin, 24px);
+    bottom: clamp(10px, 1.6vmin, 24px);
+    z-index: 55;
+    font-size: clamp(9px, 1.2vmin, 15px);
+    color: rgba(255, 255, 255, .32);
+    letter-spacing: .1em;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .4s;
+  }
+  #hint.show { opacity: 1; }
+
+  /* 出错提示 */
+  #err {
+    position: absolute; left: 50%; bottom: 8%;
+    transform: translateX(-50%);
+    z-index: 70;
+    font-size: 13px;
+    color: #ffb4b4;
+    background: rgba(60, 0, 0, .7);
+    border: 1px solid rgba(255, 120, 120, .4);
+    padding: 8px 16px;
+    border-radius: 8px;
+    display: none;
+  }
+
+  /* 手机竖屏提示：16:9 在竖屏上会被压得很小，提醒横过来看 */
+  #rotateTip {
+    display: none;
+    position: fixed;
+    left: 50%; bottom: 7vh;
+    transform: translateX(-50%);
+    z-index: 80;
+    padding: 10px 20px;
+    font-size: 13px;
+    letter-spacing: .12em;
+    color: rgba(255, 255, 255, .72);
+    background: rgba(255, 255, 255, .07);
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 999px;
+    backdrop-filter: blur(8px);
+    white-space: nowrap;
+    pointer-events: none;
+    animation: tipFloat 2.6s ease-in-out infinite;
+  }
+  @keyframes tipFloat {
+    0%, 100% { transform: translateX(-50%) translateY(0); opacity: .85; }
+    50%      { transform: translateX(-50%) translateY(-5px); opacity: 1; }
+  }
+  @media (orientation: portrait) and (max-width: 900px) {
+    #rotateTip { display: block; }
+  }
+
+  /* 小屏兜底：竖屏手机上把面板改成上下排布 */
+  @media (max-width: 720px) {
+    #frame { width: 100vw; height: 56.25vw; }
+    .panel-body { grid-template-columns: 1fr; }
+    .panel-card.no-qr .choices { gap: 10px; }
+    .panel-card { width: 96%; padding: 16px 14px; max-height: 96%; overflow-y: auto; }
+    .panel-head { margin-bottom: 12px; }
+    .choice { padding: 11px 12px; gap: 10px; }
+    .t2 { display: none; }          /* 小屏只留主文案，避免挤成三行 */
+    .panel-head h2 { font-size: 15px; line-height: 1.4; }
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <div id="frame">
+
+    <!-- ===== 四个视频标签：预加载全部，靠切换显示实现零黑屏 ===== -->
+    <video id="vMain" class="layer" src="./videos/main.mp4"     preload="auto" playsinline></video>
+    <video id="vA"    class="layer" src="./videos/branch_a.mp4" preload="auto" playsinline></video>
+    <video id="vB"    class="layer" src="./videos/branch_b.mp4" preload="auto" playsinline></video>
+    <video id="vEnd"  class="layer" src="./videos/ending.mp4"   preload="auto" playsinline></video>
+
+    <!-- 压暗层 -->
+    <div id="dim"></div>
+
+    <!-- ===== 1. 开场遮罩（绕过浏览器自动播放限制）===== -->
+    <div id="startMask" class="overlay show">
+      <div class="start-inner">
+        <div class="eyebrow">互 动 短 剧 · 双 结 局</div>
+        <h1>早八惊魂</h1>
+        <div class="start-sub">7:57　教学楼走廊　签到只剩三分钟</div>
+        <button id="btnStart" class="cta" disabled>正在加载素材…</button>
+        <div id="loadHint"></div>
+      </div>
+    </div>
+
+    <!-- ===== 2. 抉择面板 ===== -->
+    <div id="choicePanel" class="overlay">
+      <div class="panel-card no-qr" id="panelCard">
+        <div class="panel-head">
+          <span class="kicker">抉 择 时 刻</span>
+          <h2>他做了个决定 —— 换你，怎么选？</h2>
+        </div>
+
+        <div class="panel-body">
+          <div class="choices">
+            <!-- 选项 A -->
+            <button class="choice choice-a" data-branch="a">
+              <span class="key">A</span>
+              <span class="choice-txt">
+                <span class="t1">立马扶起同学，去医务室</span>
+                <span class="t2">把挂科威胁抛之脑后</span>
+              </span>
+              <span class="arrow">→</span>
+            </button>
+
+            <!-- 选项 B -->
+            <button class="choice choice-b" data-branch="b">
+              <span class="key">B</span>
+              <span class="choice-txt">
+                <span class="t1">拨打 120 和导员电话</span>
+                <span class="t2">先把情况交给别人，自己冲去签到</span>
+              </span>
+              <span class="arrow">→</span>
+            </button>
+          </div>
+
+          <!-- 二维码（若同目录下没有 qrcode.png 会自动隐藏，按钮占满整行） -->
+          <aside class="qr-box">
+            <div class="qr-tip">现 场 扫 码 投 票</div>
+            <img id="qrImg" src="./qrcode.png" alt="投票二维码">
+            <div class="qr-sub">根据投票结果<br>点击左侧按钮</div>
+          </aside>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 3. 结束 & 重选 ===== -->
+    <div id="replayPanel" class="overlay">
+      <div class="replay-inner">
+        <h2>故事到这里就结束了</h2>
+        <p>换个选择，看看另一种早八</p>
+        <button id="btnReplay" class="cta">重新选择剧情</button>
+      </div>
+    </div>
+
+    <!-- 右下角快捷键提示 -->
+    <div id="hint">A / B 键选择　·　F 键全屏</div>
+    <div id="err"></div>
+
+  </div>
+</div>
+
+<!-- 手机竖屏时提示横过来看（横屏自动隐藏） -->
+<div id="rotateTip">↻ 横过来看，效果更好</div>
+
+<script>
+/* =========================================================
+   配置区：以后想改触发时机、文案，只改这里
+   ========================================================= */
+const CONFIG = {
+  // 主线播到「剩余多少秒」时暂停并弹出抉择面板（主线总长 37.9s，结尾字幕是"他做了个决定——"）
+  triggerBeforeEnd: 2.0
+};
+
+/* =========================================================
+   元素 & 状态
+   ========================================================= */
+const V = {
+  main: document.getElementById('vMain'),
+  a:    document.getElementById('vA'),
+  b:    document.getElementById('vB'),
+  end:  document.getElementById('vEnd')
+};
+const ALL = [V.main, V.a, V.b, V.end];
+
+const startMask   = document.getElementById('startMask');
+const btnStart    = document.getElementById('btnStart');
+const loadHint    = document.getElementById('loadHint');
+const choicePanel = document.getElementById('choicePanel');
+const replayPanel = document.getElementById('replayPanel');
+const btnReplay   = document.getElementById('btnReplay');
+const dim         = document.getElementById('dim');
+const hint        = document.getElementById('hint');
+const panelCard   = document.getElementById('panelCard');
+const errBox      = document.getElementById('err');
+
+// 播放状态机：idle → main → choose → branch → ending → endpanel → choose...
+let state = 'idle';
+let zTop = 10;           // 层叠序号，保证新切的视频永远盖在最上面
+
+/* =========================================================
+   视频层切换
+   —— 关键：新视频先 play() 起来（此时已预加载，首帧就绪），再把它的
+      opacity 立刻置 1 并抬到最高 z-index。旧层被完整覆盖，不产生叠影，
+     也不需要任何淡入淡出，所以观众看不到黑帧。
+   ========================================================= */
+function setLayer(target) {
+  zTop += 1;
+  target.style.zIndex = zTop;
+  ALL.forEach(v => v.classList.toggle('active', v === target));
+}
+
+/* 把某个视频复位到开头（用于重选后重播）*/
+function rewind(v) {
+  try { v.pause(); } catch (e) {}
+  try { v.currentTime = 0; } catch (e) {}
+}
+
+/* 起播一个视频：先回到 0，play 成功后再切层，避免第一帧黑屏 */
+async function playFrom(v) {
+  try { v.currentTime = 0; } catch (e) {}
+  try {
+    await v.play();
+  } catch (e) {
+    // 极少数情况（比如用户手势丢失）会 reject，这里兜底再试一次
+    try { await v.play(); } catch (e2) { showError('播放被浏览器拦截，请再点一次「开始体验」'); }
+  }
+  setLayer(v);
+}
+
+/* =========================================================
+   开始体验
+   ========================================================= */
+async function start() {
+  if (state !== 'idle') return;
+  state = 'main';
+
+  startMask.classList.remove('show');
+  hint.classList.add('show');
+
+  // 把三条支线/结尾重新拉一遍 load，确保已经缓存在本地/浏览器里
+  [V.a, V.b, V.end].forEach(v => {
+    if (v.readyState < 2) { try { v.load(); } catch (e) {} }
+  });
+
+  await playFrom(V.main);
+}
+btnStart.addEventListener('click', start);
+
+/* =========================================================
+   主线播放中：逐帧检查剩余时间（比 timeupdate 精确，能刚好停在字幕上）
+   ========================================================= */
+function tick() {
+  if (state === 'main' && V.main.duration) {
+    const left = V.main.duration - V.main.currentTime;
+    if (left <= CONFIG.triggerBeforeEnd && !V.main.paused) {
+      V.main.pause();          // 定格在"他做了个决定——"这一帧
+      state = 'choose';
+      openChoice();
+    }
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+/* 兜底：某些浏览器 rAF 节流时可借助 timeupdate 触发 */
+V.main.addEventListener('timeupdate', () => {
+  if (state !== 'main' || !V.main.duration) return;
+  if (V.main.duration - V.main.currentTime <= CONFIG.triggerBeforeEnd && !V.main.paused) {
+    V.main.pause();
+    state = 'choose';
+    openChoice();
+  }
+});
+
+/* =========================================================
+   抉择面板
+   ========================================================= */
+function openChoice() {
+  dim.classList.add('show');
+  choicePanel.classList.add('show');
+}
+
+function closeChoice() {
+  choicePanel.classList.remove('show');
+  dim.classList.remove('show');
+}
+
+/* 点击 A / B */
+document.querySelectorAll('.choice').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (state !== 'choose') return;
+    const branch = btn.dataset.branch;   // 'a' 或 'b'
+    chooseBranch(branch);
+  });
+});
+
+async function chooseBranch(branch) {
+  state = 'branch';
+  closeChoice();
+
+  const target = branch === 'a' ? V.a : V.b;
+  const other  = branch === 'a' ? V.b : V.a;
+
+  rewind(other);   // 把上一次看过的另一条支线清干净，方便回来看
+  await playFrom(target);
+}
+
+/* =========================================================
+   支线结束 → 自动接共同的升华结尾
+   ========================================================= */
+V.a.addEventListener('ended', onBranchEnded);
+V.b.addEventListener('ended', onBranchEnded);
+
+async function onBranchEnded() {
+  if (state !== 'branch') return;
+  state = 'ending';
+  await playFrom(V.end);
+}
+
+/* =========================================================
+   结尾播完 → 显示「重新选择剧情」
+   ========================================================= */
+V.end.addEventListener('ended', () => {
+  if (state !== 'ending') return;
+  state = 'endpanel';
+  dim.classList.add('show');
+  replayPanel.classList.add('show');
+});
+
+/* 重新选择：不刷新页面，直接回到主线的定格帧 + 重新弹面板 */
+btnReplay.addEventListener('click', () => {
+  if (state !== 'endpanel') return;
+
+  replayPanel.classList.remove('show');
+  rewind(V.end);
+  rewind(V.a);
+  rewind(V.b);
+
+  // 主线此时仍停在抉择帧（paused），把画面切回它就等于"回到抉择处"
+  setLayer(V.main);
+
+  state = 'choose';
+  // 让观众看清回到的是哪一帧，稍等一下再弹面板
+  setTimeout(() => { if (state === 'choose') openChoice(); }, 320);
+});
+
+/* =========================================================
+   素材预加载检测：四条都能播了才启用按钮
+   ========================================================= */
+function ready(v) {
+  // readyState >= 3 (HAVE_FUTURE_DATA) 才算基本可播
+  return v.readyState >= 3;
+}
+
+let checked = false;
+let readyTimer = null;
+
+function markReady(note) {
+  if (checked) return;
+  checked = true;
+  if (readyTimer) { clearInterval(readyTimer); readyTimer = null; }
+  btnStart.disabled = false;
+  btnStart.textContent = '点击开始体验';
+  loadHint.textContent = note || '';
+  warmUp();
+}
+
+function updateReady() {
+  if (checked) return;                 // 已经放行过，就别再改文案了
+  const okCount = ALL.filter(ready).length;
+  if (okCount === ALL.length) {
+    markReady('');
+  } else {
+    loadHint.textContent = `素材加载中 ${okCount}/4 …`;
+  }
+}
+ALL.forEach(v => {
+  v.addEventListener('canplaythrough', updateReady);
+  v.addEventListener('canplay', updateReady);
+  v.addEventListener('loadeddata', updateReady);
+});
+readyTimer = setInterval(updateReady, 500);   // 兜底轮询
+
+// 8 秒还没加载完也放行，避免现场干等
+setTimeout(() => {
+  if (!checked && state === 'idle') markReady('（部分视频仍在缓冲，建议先等几秒）');
+}, 8000);
+
+/* 预热：把每条视频 seek 到 0.05s 再回 0，强制浏览器解码出首帧，
+   这样真正切换过去的时候是"即插即有画面"的 */
+function warmUp() {
+  ALL.forEach(v => {
+    if (v.readyState < 2) return;
+    try {
+      v.currentTime = 0.05;
+      setTimeout(() => { if (v.paused) v.currentTime = 0; }, 120);
+    } catch (e) {}
+  });
+}
+
+/* =========================================================
+   二维码：有 qrcode.png 就显示，没有就自动收起
+   ========================================================= */
+const qrImg = document.getElementById('qrImg');
+function qrOk() {
+  if (qrImg.complete && qrImg.naturalWidth > 0) {
+    panelCard.classList.remove('no-qr');
+  }
+}
+qrImg.addEventListener('load', qrOk);
+qrImg.addEventListener('error', () => panelCard.classList.add('no-qr'));
+qrOk();   // 命中缓存时 load 可能已经错过了
+
+/* =========================================================
+   键盘快捷键（现场演示用）
+   ========================================================= */
+document.addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+
+  if (k === 'f') {   // F 全屏 / 退出全屏
+    e.preventDefault();
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    } else {
+      document.exitFullscreen?.();
+    }
+    return;
+  }
+
+  if (state === 'idle' && (k === ' ' || k === 'enter') && !btnStart.disabled) {
+    e.preventDefault(); start(); return;
+  }
+  if (state === 'choose' && (k === 'a' || k === 'b')) {
+    e.preventDefault(); chooseBranch(k); return;
+  }
+  if (state === 'endpanel' && (k === ' ' || k === 'enter')) {
+    e.preventDefault(); btnReplay.click(); return;
+  }
+});
+
+/* =========================================================
+   错误提示
+   ========================================================= */
+function showError(msg) {
+  errBox.textContent = msg;
+  errBox.style.display = 'block';
+}
+ALL.forEach(v => {
+  v.addEventListener('error', () => {
+    showError('视频加载失败，请检查 videos 目录下是否有：' + v.getAttribute('src'));
+  });
+});
+</script>
+</body>
+</html>
